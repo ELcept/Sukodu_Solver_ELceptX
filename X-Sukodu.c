@@ -64,43 +64,195 @@ void print_sudoku_board(SudokuBoard* board, bool show_solution) {
 
 }
 
-// 生成随机数独谜题
-void generate_sudoku_puzzle(SudokuBoard* board, int difficulty) {
-    // 简单实现：随机填充一些数字
-    srand(time(NULL));
+
+
+// 生成随机排列
+void random_permutation(int* array, int size) {
+    for (int i = size - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int temp = array[i];
+        array[i] = array[j];
+        array[j] = temp;
+    }
+}
+
+// 检查数字是否可放置
+bool is_safe(SudokuBoard* board, int row, int col, int num, bool is_percent) {
     int size = board->size;
-    int cells_to_fill = difficulty * 5; // 根据难度决定填充的单元格数量
+    
+    // 检查行和列
+    for (int i = 0; i < size; i++) {
+        if (board->grid[row][i] == num || board->grid[i][col] == num) {
+            return false;
+        }
+    }
+    
+    // 检查3x3宫格
+    int box_size = (int)sqrt(size);
+    int start_row = row - row % box_size;
+    int start_col = col - col % box_size;
+    
+    for (int i = 0; i < box_size; i++) {
+        for (int j = 0; j < box_size; j++) {
+            if (board->grid[start_row + i][start_col + j] == num) {
+                return false;
+            }
+        }
+    }
+    
+    // 检查百分号数独的特殊约束
+    if (is_percent && size == 9) {
+        // 主对角线
+        if (row == col && board->grid[row][col] != 0) {
+            return false;
+        }
+        
+        // 副对角线
+        if (row + col == size - 1 && board->grid[row][col] != 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// 使用回溯法填充数独
+bool fill_sudoku(SudokuBoard* board, int row, int col, bool is_percent) {
+    int size = board->size;
+    
+    if (row == size) {
+        return true;
+    }
+    
+    if (col == size) {
+        return fill_sudoku(board, row + 1, 0, is_percent);
+    }
+    
+    if (board->grid[row][col] != 0) {
+        return fill_sudoku(board, row, col + 1, is_percent);
+    }
+    
+    // 创建随机数字排列
+    int* numbers = (int*)malloc(size * sizeof(int));
+    for (int i = 0; i < size; i++) {
+        numbers[i] = i + 1;
+    }
+    random_permutation(numbers, size);
+    
+    for (int i = 0; i < size; i++) {
+        int num = numbers[i];
+        
+        if (is_safe(board, row, col, num, is_percent)) {
+            board->grid[row][col] = num;
+            
+            if (fill_sudoku(board, row, col + 1, is_percent)) {
+                free(numbers);
+                return true;
+            }
+            
+            board->grid[row][col] = 0;
+        }
+    }
+    
+    free(numbers);
+    return false;
+}
+
+// 生成完整数独
+void generate_complete_sudoku(SudokuBoard* board) {
+    int size = board->size;
+    
+    // 先清空棋盘
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            board->grid[i][j] = 0;
+        }
+    }
+    
+    // 随机填充一些单元格作为起点
+    int cells_to_fill = size; // 填充的单元格数量等于棋盘大小
+    int* indices = (int*)malloc(size * size * sizeof(int));
+    
+    for (int i = 0; i < size * size; i++) {
+        indices[i] = i;
+    }
+    random_permutation(indices, size * size);
     
     for (int i = 0; i < cells_to_fill; i++) {
-        int row = rand() % size;
-        int col = rand() % size;
-        int num = rand() % size + 1;
+        int idx = indices[i];
+        int row = idx / size;
+        int col = idx % size;
         
-        // 检查是否有效
-        bool valid = true;
+        int* numbers = (int*)malloc(size * sizeof(int));
         for (int j = 0; j < size; j++) {
-            if (board->grid[row][j] == num || board->grid[j][col] == num) {
-                valid = false;
+            numbers[j] = j + 1;
+        }
+        random_permutation(numbers, size);
+        
+        for (int j = 0; j < size; j++) {
+            int num = numbers[j];
+            if (is_safe(board, row, col, num, board->is_percent)) {
+                board->grid[row][col] = num;
                 break;
             }
         }
         
-        // 检查宫格
-        int boxRow = row / 3;
-        int boxCol = col / 3;
-        for (int r = boxRow * 3; r < boxRow * 3 + 3; r++) {
-            for (int c = boxCol * 3; c < boxCol * 3 + 3; c++) {
-                if (board->grid[r][c] == num) {
-                    valid = false;
-                    break;
-                }
-            }
-        }
-        
-        if (valid) {
-            board->grid[row][col] = num;
+        free(numbers);
+    }
+    
+    free(indices);
+    
+    // 使用回溯法完成填充
+    fill_sudoku(board, 0, 0, board->is_percent);
+    
+    // 将完整解复制到solution中
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            board->solution[i][j] = board->grid[i][j];
         }
     }
+}
+
+// 生成数独谜题
+void generate_sudoku_puzzle(SudokuBoard* board, int difficulty) {
+    // 先生成完整数独
+    generate_complete_sudoku(board);
+    
+    int size = board->size;
+    int total_cells = size * size;
+    
+    // 根据难度确定要挖空的单元格数量
+    int cells_to_remove;
+    switch (difficulty) {
+        case 1: // 简单
+            cells_to_remove = total_cells * 40 / 100; // 挖空40%
+            break;
+        case 2: // 中等
+            cells_to_remove = total_cells * 50 / 100; // 挖空50%
+            break;
+        case 3: // 困难
+            cells_to_remove = total_cells * 60 / 100; // 挖空60%
+            break;
+        default: // 默认中等难度
+            cells_to_remove = total_cells * 50 / 100;
+    }
+    
+    // 创建所有单元格的索引列表并随机打乱
+    int* indices = (int*)malloc(total_cells * sizeof(int));
+    for (int i = 0; i < total_cells; i++) {
+        indices[i] = i;
+    }
+    random_permutation(indices, total_cells);
+    
+    // 挖空指定数量的单元格
+    for (int i = 0; i < cells_to_remove; i++) {
+        int idx = indices[i];
+        int row = idx / size;
+        int col = idx % size;
+        board->grid[row][col] = 0;
+    }
+    
+    free(indices);
 }
 
 
